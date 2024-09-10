@@ -1,3 +1,10 @@
+# 할거 메모
+# diarization 코드 리팩토링
+# toy n개로 쪼개서 model.fit iteration으로 학습 하기
+# 이후 aihub data 쪼개서 사용
+# predict와 L1, L2, cos 유사도 실행 시간 비교
+
+
 import numpy as np
 import uisrnn
 import time
@@ -107,9 +114,10 @@ frame_size = 256
 my_test_sequences = []
 my_test_cluster_ids = []
 
+# 파일 저장 위치 global
 file_list = glob.glob('E:/ts5/*.wav')
 
-#파일 진행 퍼센트 확인
+#파일 진행 퍼센트 확인 >> tqdm 가능
 percent = 0
 
 #파일 불러오기
