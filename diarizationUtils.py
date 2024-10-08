@@ -10,12 +10,12 @@
 import numpy as np
 import uisrnn
 import time
-import math
 import glob
 import json
 import librosa
 import os
 import sys
+import gc
 
 
 # const doDiarizatin 으로 이동
@@ -31,6 +31,12 @@ ITERATION_NUMBER = 100
 
 # n_mfcc 값, observation dim 값
 N_MFCC_VALUE = 30
+
+FRAME_RATE = 16000
+
+HOP_LENGTH = 160
+
+N_FFT = 320
 
 
 def modelSetting(modelNum):
@@ -49,14 +55,15 @@ def modelSetting(modelNum):
     # my train data 불러오기
     if(modelNum == 1):
         train_data = np.load('./my_train_data.npz', allow_pickle=True)
+        print(train_data['train_sequence'].shape)
 
     # 1이 아닌 한 toy training 불러오가
     else:
         train_data = np.load('./toy_training_data.npz', allow_pickle=True)
 
     test_data = np.load('./toy_testing_data.npz', allow_pickle=True)
-    train_sequence = train_data['train_sequence']
-    train_cluster_id = train_data['train_cluster_id']
+    train_sequence = train_data['train_sequence'][0]
+    train_cluster_id = train_data['train_cluster_id'][0]
     
     """ 
     test_sequences = test_data['test_sequences'].tolist()
@@ -82,12 +89,13 @@ def modelSetting(modelNum):
     train_cluster_id = np.array(train_cluster_id)
     train_cluster_id = np.squeeze(train_cluster_id)
 
+    """    
     print(train_sequence.shape)
     print(train_cluster_id.shape)
 
     print(train_sequence)
     print(train_cluster_id)
-
+    """
     print(f"model setting done :  {time.time() - start_time}s")
 
     return train_sequence, train_cluster_id, model_args, training_args, inference_args
@@ -106,18 +114,18 @@ def modelInitialization(train_sequence, train_cluster_id, model_args, training_a
     # model setting num은 나중에 지우기 -> 분기로 initialization과 load 분리
     if (MODEL_SETTING_NUMBER == 1 or MODEL_SETTING_NUMBER == 2):
         model = uisrnn.UISRNN(model_args)
-        model = modelLearnSave(model, train_sequence, train_cluster_id, training_args)
+        model = modelFitSave(model, train_sequence, train_cluster_id, training_args)
 
     print(f"model initialization done :  {time.time() - start_time}s")
 
     return model
 
 
-def modelLearnSave(model, train_sequence, train_cluster_id, training_args):
+def modelFitSave(model, train_sequence, train_cluster_id, training_args):
     """
     model을 인자로 받아 fit하고 save한다.
 
-    modelLearnSave(model, train_sequence, train_cluster_id, training_args)
+    modelFitSave(model, train_sequence, train_cluster_id, training_args)
     return 값 model
     """
     print("model Learning and save start")
@@ -225,6 +233,8 @@ def dataPreprocessing(globalPath):
 
         #wav 파일 librosa로 불러오기
         data_float, sample_rate = librosa.load(file, sr = None)
+        global FRAME_RATE
+        FRAME_RATE = sample_rate
         data_float = data_float.astype('float64')
         
         # transpose 하면 64개마다 hop만큼 frame
@@ -234,11 +244,8 @@ def dataPreprocessing(globalPath):
         # n_fft 320이면 20 ms. frame length임
         # hop length 160이면 10 ms
         # mfcc /100 하면 시간이 나옴
-
-        
-        hopLength = 160
     
-        mfcc = librosa.feature.mfcc(y=data_float, sr=sample_rate, n_fft = 320, n_mfcc=N_MFCC_VALUE, hop_length=hopLength)
+        mfcc = librosa.feature.mfcc(y=data_float, sr=sample_rate, n_fft = N_FFT, n_mfcc=N_MFCC_VALUE, hop_length=HOP_LENGTH)
         mfcc = np.transpose(mfcc)
 
         print("1111111111")
@@ -268,7 +275,17 @@ def dataPreprocessing(globalPath):
         #wav 전체 시간 = 전체 프레임 / sample rate
         #t = len(my_test_sequences) * frame_size / sample_rate
         #print(t)
-        my_test_sequences.append(my_test_sequence)
+
+
+        #my_test_sequence를 3만개씩 쪼개서 넣기
+        _index = 0
+        while True:
+            if(_index + 30000 >= len(my_test_sequence)):
+                my_test_sequences.append(my_test_sequence[_index:len(my_test_sequence)])
+                break
+            else:
+                my_test_sequences.append(my_test_sequence[_index:_index+30000])
+                _index += 30000
 
         #같은 이름 다른 확장자
         json_file = os.path.splitext(file)[0]+'.json'
@@ -298,6 +315,65 @@ def dataPreprocessing(globalPath):
         ##row len
         #print(len(my_test_sequence))
 
+        """ 
+        for i in range(len(my_test_sequence)):
+            my_test_cluster_id.append('1')
+        """
+
+        # (n_fft / frame rate) / 2, window의 중간 시간
+        middleTime = (N_FFT / FRAME_RATE) / 2
+        #hop time hop len / frame rate
+        hop = HOP_LENGTH / FRAME_RATE
+
+        for dic in result:
+            #시작, 끝 시간 float로 표현
+            #_f_start = float(dic['start'])
+            _f_end = float(dic['end'])
+
+            try:
+                #n_speak = '0_' + dic['speaker_id']
+                n_speak = dic['speaker_id']
+            except ValueError:
+                n_speak = '1'
+
+            # start, end speaker Id dictionary로 list 만들고
+            # 전체 시간 T = list의 마지막 end 시간
+            # sequence 행 1개당 시간은 end 시간 / len(sequence)
+            # window의 가운데에 해당하는 speaker id를 갖자.
+            
+            # (nf = start)초일때 배열 my_test_cluster_id[N]
+            # nt = end
+            # array_n_start = floor(len(my_test_cluster_id) * n_start / t)
+            # array_n_end = floor(len(my_test_cluster_id) * n_end / t)
+            # my_test_cluster_id[Nf]~[Nt] speaker_id(n_speak)로 초기화
+
+            """ 
+            t = len(my_test_sequence) * hopLength / sample_rate
+            array_n_start = math.floor(len(my_test_cluster_id) * n_start / t)
+            array_n_end = math.floor(len(my_test_cluster_id) * n_end / t)
+
+            while array_n_start <= array_n_end:
+                my_test_cluster_id[array_n_start] = n_speak
+                array_n_start += 1
+            """
+
+            # time > end iter 돌리고
+            # 만약 time > end 면 다음 dic로 간다.
+
+            while middleTime <= _f_end:
+                my_test_cluster_id.append(n_speak)
+                middleTime += hop
+
+        # len(my_test_sequence) vs len(my_test_cluster_id)
+
+        # test cluster id 갯수 안맞을 경우 보정
+        if len(my_test_cluster_id) < len(my_test_sequence):
+            for _ in range(len(my_test_sequence) - len(my_test_cluster_id)):
+                my_test_cluster_id.append(my_test_cluster_id[-1])
+
+
+
+
         # n_fft 320이면 20 ms. frame length임 -> window 크기
         # hop length 160이면 10 ms
         # mfcc /100 하면 시간이 나옴
@@ -314,43 +390,18 @@ def dataPreprocessing(globalPath):
         # 중간 시간에 hop 만큼 더해가면서 json의 end 시간과 비교
         # json의 end 시간보다 넘으면 다음 dictionary 읽기
 
-        """ 
-        for i in range(len(my_test_sequence)):
-            my_test_cluster_id.append('0')
-        """
-
-        for dic in result:
-            #시작 시간 float로 표현
-            n_start = float(dic['start'])
-            n_end = float(dic['end'])
-
-            try:
-                #n_speak = '0_' + dic['speaker_id']
-                n_speak = dic['speaker_id']
-            except ValueError:
-                n_speak = '1'
-
-            # start, end speaker Id dictionary로 list 만들고
-            # 전체 시간 T = list의 마지막 end 시간
-            # sequence 행 1개당 시간은 end 시간 / len(sequence)
-            # window의 가운데에 해당하는 speaker id를 갖자.
-            
-            # (nf = start)초일때 배열 my_test_cluster_id[N] 
-            # nt = end
-            # array_n_start = floor(len(my_test_cluster_id) * n_start / t)
-            # array_n_end = floor(len(my_test_cluster_id) * n_end / t)
-            # my_test_cluster_id[Nf]~[Nt] speaker_id(n_speak)로 초기화
-
-            t = len(my_test_sequence) * hopLength / sample_rate
-            array_n_start = math.floor(len(my_test_cluster_id) * n_start / t)
-            array_n_end = math.floor(len(my_test_cluster_id) * n_end / t)
-
-            while array_n_start <= array_n_end:
-                my_test_cluster_id[array_n_start] = n_speak
-                array_n_start += 1
 
         print(np.asarray(my_test_cluster_id).shape)
-        my_test_cluster_ids.append(my_test_cluster_id)
+
+        #my_test_cluster를 3만개씩 쪼개서
+        _index = 0
+        while True:
+            if(_index + 30000 >= len(my_test_cluster_id)):
+                my_test_cluster_ids.append(my_test_cluster_id[_index:len(my_test_cluster_id)])
+                break
+            else:
+                my_test_cluster_ids.append(my_test_cluster_id[_index:_index+30000])
+                _index += 30000
 
 
         percent+=1
@@ -361,15 +412,16 @@ def dataPreprocessing(globalPath):
 
     print("wav파일 모두 읽어서 배열에 저장한 시간 : ", time.time() - start_time)
 
-    my_test_sequences = np.array(my_test_sequences)
+    my_test_sequences = np.array(my_test_sequences, dtype=object)
     my_test_sequences = np.squeeze(my_test_sequences)
 
-    my_test_cluster_ids = np.array(my_test_cluster_ids)
-    my_test_cluster_ids = np.squeeze(my_test_cluster_ids) 
+    my_test_cluster_ids = np.array(my_test_cluster_ids, dtype=object)
+    my_test_cluster_ids = np.squeeze(my_test_cluster_ids)
 
-    #개수 맞추기?
-    my_test_sequences = my_test_sequences[0:2000]
-    my_test_cluster_ids = my_test_cluster_ids[0:2000]
+
+
+    print(my_test_sequences.shape)
+    print(my_test_cluster_ids.shape)
 
     np.savez('my_train_data.npz', train_sequence=my_test_sequences, train_cluster_id=my_test_cluster_ids)
 

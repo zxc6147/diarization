@@ -15,6 +15,8 @@ FILES_FOR_LEARNING_GLOBAL_PATH = "/media/zxc6147/새 볼륨1/ts5/*.wav"
 def main():
 
     #d.dataPreprocessing(FILES_FOR_LEARNING_GLOBAL_PATH)
+    ts, tci, ma, ta, ia = d.modelSetting(1)
+    model = d.modelInitialization(ts, tci, ma, ta)
 
     return None
 
