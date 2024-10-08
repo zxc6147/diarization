@@ -10,7 +10,7 @@ import os
 #a == 0이면 model load
 #a == 1이면 my train data
 #a == 2이면 toy 처음부터 학습
-a = 1
+a = 2
 
 start_time = time.time()
 
@@ -28,10 +28,9 @@ train_cluster_id = train_data['train_cluster_id']
 test_sequences = test_data['test_sequences'].tolist()
 test_cluster_ids = test_data['test_cluster_ids'].tolist()
 
-
-
 model_args, training_args, inference_args = uisrnn.parse_arguments()
 
+model_args.observation_dim = 256
 #이터레이션 숫자
 training_args.train_iteration = 100
 training_args.enforce_cluster_id_uniqueness = False
@@ -57,8 +56,7 @@ model = 0
 #learn, save
 if (a == 1 or a == 2):
     model = uisrnn.UISRNN(model_args)
-    #내 npz로 fit이 지금 아예 안되는 듯
-    model.fit(train_sequence, train_cluster_id, training_args) 
+    model.fit(train_sequence, train_cluster_id, training_args)
     temp_arr = np.array(model)
     np.save('model', temp_arr)
     print('model saved!!')
@@ -97,9 +95,6 @@ print(i)
  """
 
 
-
-
-
 # 75개 다 불러옴
 # print(len(file_list))
 
@@ -107,7 +102,8 @@ frame_size = 256
 my_test_sequences = []
 my_test_cluster_ids = []
 
-file_list = glob.glob('E:/ts5/*.wav')
+#/media/zxc6147/새 볼륨1/ts5/
+file_list = glob.glob('/media/zxc6147/새 볼륨1/ts5/*.wav')
 
 #파일 진행 퍼센트 확인
 percent = 0
@@ -116,9 +112,25 @@ percent = 0
 for file in file_list:
     my_test_sequence = []
 
+    print(file)
+
     #wav 파일 librosa로 불러오기
     data_float, sample_rate = librosa.load(file, sr = None)
     data_float = data_float.astype('float64')
+
+    # transpose 하면 64개마다 hop만큼 frame
+    # sample rate 16,000
+
+
+    # n_fft 400이면 25 ms. frame length임
+
+    # hop length 160이면 10 ms
+
+    mfcc = librosa.feature.mfcc(y=data_float, sr=sample_rate, n_fft = 400, n_mfcc=64, hop_length=160)
+
+    print("1111111111")
+    print(data_float.shape)
+    print(mfcc.shape)
 
     #print("type은?")
     #print(type(data_float[0]))
@@ -215,8 +227,9 @@ my_test_cluster_ids = np.array(my_test_cluster_ids)
 my_test_cluster_ids = np.squeeze(my_test_cluster_ids) 
 
 #개수 맞추기?
-my_test_sequences = my_test_sequences[0:2000]
-my_test_cluster_ids = my_test_cluster_ids[0:2000]
+#153600 이 10분
+my_test_sequences = my_test_sequences[0:47350]
+my_test_cluster_ids = my_test_cluster_ids[0:47350]
 
 np.savez('my_train_data.npz', train_sequence=my_test_sequences, train_cluster_id=my_test_cluster_ids)
 
@@ -225,7 +238,7 @@ print("저장한 np array들을 npz로 저장한 시간 : ", time.time() - start
 
  
 
-predicted_cluster_ids = []
+""" predicted_cluster_ids = []
 test_record = []
 
 
@@ -240,7 +253,7 @@ print(predicted_cluster_id)
 print('-' * 100)
 
 output_result = uisrnn.output_result(model_args, training_args, test_record)
-print(output_result)
+print(output_result) """
 
 
 
