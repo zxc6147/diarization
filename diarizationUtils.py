@@ -15,10 +15,8 @@ import json
 import librosa
 import os
 import sys
-import gc
+import torch, gc
 
-
-# const doDiarizatin 으로 이동
 
 
 # MODELSETTINGNUMBER == 0이면 model load
@@ -27,16 +25,22 @@ import gc
 MODEL_SETTING_NUMBER = 1
 
 # iteration 횟수 지정
-ITERATION_NUMBER = 100
+ITERATION_NUMBER = 1000
+
+#BATCH_SIZE = 10
+BATCH_SIZE = 8
 
 # n_mfcc 값, observation dim 값
-N_MFCC_VALUE = 30
+#N_MFCC_VALUE = 30
+N_MFCC_VALUE = 13
 
 FRAME_RATE = 16000
 
-HOP_LENGTH = 160
+#HOP_LENGTH = 160
+HOP_LENGTH = 1600
 
-N_FFT = 320
+#N_FFT = 320
+N_FFT = 3200
 
 
 def modelSetting(modelNum):
@@ -55,15 +59,15 @@ def modelSetting(modelNum):
     # my train data 불러오기
     if(modelNum == 1):
         train_data = np.load('./my_train_data.npz', allow_pickle=True)
-        print(train_data['train_sequence'].shape)
 
     # 1이 아닌 한 toy training 불러오가
-    else:
+    elif(modelNum == 0 or modelNum == 2):
         train_data = np.load('./toy_training_data.npz', allow_pickle=True)
 
+
     test_data = np.load('./toy_testing_data.npz', allow_pickle=True)
-    train_sequence = train_data['train_sequence'][0]
-    train_cluster_id = train_data['train_cluster_id'][0]
+    train_sequence = train_data['train_sequence']
+    train_cluster_id = train_data['train_cluster_id']
     
     """ 
     test_sequences = test_data['test_sequences'].tolist()
@@ -77,6 +81,7 @@ def modelSetting(modelNum):
     #이터레이션 숫자 지정
     training_args.train_iteration = ITERATION_NUMBER
     training_args.enforce_cluster_id_uniqueness = False
+    training_args.batch_size = BATCH_SIZE
     model_args.observation_dim = N_MFCC_VALUE
 
     print(model_args)
@@ -89,13 +94,13 @@ def modelSetting(modelNum):
     train_cluster_id = np.array(train_cluster_id)
     train_cluster_id = np.squeeze(train_cluster_id)
 
-    """    
+    
     print(train_sequence.shape)
     print(train_cluster_id.shape)
 
-    print(train_sequence)
-    print(train_cluster_id)
-    """
+    #print(train_sequence)
+    #print(train_cluster_id)
+    
     print(f"model setting done :  {time.time() - start_time}s")
 
     return train_sequence, train_cluster_id, model_args, training_args, inference_args
@@ -122,6 +127,7 @@ def modelInitialization(train_sequence, train_cluster_id, model_args, training_a
 
 
 def modelFitSave(model, train_sequence, train_cluster_id, training_args):
+
     """
     model을 인자로 받아 fit하고 save한다.
 
@@ -130,6 +136,8 @@ def modelFitSave(model, train_sequence, train_cluster_id, training_args):
     """
     print("model Learning and save start")
     start_time = time.time()
+    gc.collect()
+    torch.cuda.empty_cache()
 
     model.fit(train_sequence, train_cluster_id, training_args) 
     temp_arr = np.array(model)
@@ -138,6 +146,39 @@ def modelFitSave(model, train_sequence, train_cluster_id, training_args):
     print(f"model Learning and Save done :  {time.time() - start_time}s")
 
     return model
+
+
+
+def modelLoadAndFit(model_path):
+    model = modelLoad(model_path)
+        # my train data 불러오기
+    train_data = np.load('./my_train_data.npz', allow_pickle=True)
+
+    train_sequence = train_data['train_sequence']
+    train_cluster_id = train_data['train_cluster_id']
+
+    model_args, training_args, inference_args = uisrnn.parse_arguments()
+
+    #이터레이션 숫자 지정
+    training_args.train_iteration = ITERATION_NUMBER
+    training_args.enforce_cluster_id_uniqueness = False
+    training_args.batch_size = BATCH_SIZE
+    model_args.observation_dim = N_MFCC_VALUE
+
+    train_sequence = np.array(train_sequence)
+    train_sequence = np.squeeze(train_sequence)
+
+    train_cluster_id = np.array(train_cluster_id)
+    train_cluster_id = np.squeeze(train_cluster_id)
+
+    """     print(model_args)
+    print(training_args)
+    print(inference_args)
+    print(train_sequence.shape)
+    print(train_cluster_id.shape)
+
+    """    
+    modelFitSave(model, train_sequence, train_cluster_id, training_args)
 
 
 
@@ -155,7 +196,6 @@ def modelLoad(model_path):
     # model 초기화
     model = 0
 
-    
     # temp_arr = np.load('./model.npy', allow_pickle=True)
     # model = temp_arr.tolist()
     # 위 두줄을 아래로 축약
@@ -163,45 +203,27 @@ def modelLoad(model_path):
     # model load 후 list로 변경
     model = (np.load(model_path, allow_pickle=True)).tolist()
 
-
     # sys isexist 로 판별 할까???????????????
     # 예외처리
     if model == 0:
         sys.exit("error, no model file detected")
 
 
+    model_args, training_args, inference_args = uisrnn.parse_arguments()
+
+    #이터레이션 숫자 지정
+    training_args.train_iteration = ITERATION_NUMBER
+    training_args.enforce_cluster_id_uniqueness = False
+    training_args.batch_size = BATCH_SIZE
+    model_args.observation_dim = N_MFCC_VALUE
+
+
     # load 후 학습 추가?
 
     print(f"model load done :  {time.time() - start_time}s")
 
-    return model
+    return model, model_args, training_args, inference_args
 
-
-
-
-""" 
-#predict
-predicted_cluster_ids = []
-test_record = []
-
-i = 0
-for(test_sequence, test_cluster_id) in zip(test_sequences, test_cluster_ids):
-  predicted_cluster_id = model.predict(test_sequence, inference_args)
-  predicted_cluster_ids.append(predicted_cluster_id)
-  accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_id, predicted_cluster_id)
-  test_record.append((accuracy, len(test_cluster_id)))
-  print('Ground truth labels: ')
-  print(test_cluster_id)
-  print('Predicted labels: ')
-  print(predicted_cluster_id)
-  print('-' * 100)
-  i+=1
-
-output_result = uisrnn.output_result(model_args, training_args, test_record)
-print(output_result)  
-print(i) 
-
- """
 
 
 
@@ -277,7 +299,7 @@ def dataPreprocessing(globalPath):
         #print(t)
 
 
-        #my_test_sequence를 3만개씩 쪼개서 넣기
+        """         #my_test_sequence를 3만개씩 쪼개서 넣기
         _index = 0
         while True:
             if(_index + 30000 >= len(my_test_sequence)):
@@ -286,7 +308,7 @@ def dataPreprocessing(globalPath):
             else:
                 my_test_sequences.append(my_test_sequence[_index:_index+30000])
                 _index += 30000
-
+        """
         #같은 이름 다른 확장자
         json_file = os.path.splitext(file)[0]+'.json'
         #print(json_file)
@@ -391,8 +413,8 @@ def dataPreprocessing(globalPath):
         # json의 end 시간보다 넘으면 다음 dictionary 읽기
 
 
-        print(np.asarray(my_test_cluster_id).shape)
-
+        #print(np.asarray(my_test_cluster_id).shape)
+        """ 
         #my_test_cluster를 3만개씩 쪼개서
         _index = 0
         while True:
@@ -403,7 +425,7 @@ def dataPreprocessing(globalPath):
                 my_test_cluster_ids.append(my_test_cluster_id[_index:_index+30000])
                 _index += 30000
 
-
+        """
         percent+=1
         print("percentage : ", percent / len(file_list) * 100)
 
@@ -412,10 +434,15 @@ def dataPreprocessing(globalPath):
 
     print("wav파일 모두 읽어서 배열에 저장한 시간 : ", time.time() - start_time)
 
-    my_test_sequences = np.array(my_test_sequences, dtype=object)
+    print(len(my_test_cluster_id))
+
+    my_test_sequences = my_test_sequence
+    my_test_cluster_ids = my_test_cluster_id
+
+    my_test_sequences = np.array(my_test_sequences)
     my_test_sequences = np.squeeze(my_test_sequences)
 
-    my_test_cluster_ids = np.array(my_test_cluster_ids, dtype=object)
+    my_test_cluster_ids = np.array(my_test_cluster_ids)
     my_test_cluster_ids = np.squeeze(my_test_cluster_ids)
 
 
@@ -427,28 +454,47 @@ def dataPreprocessing(globalPath):
 
     print("저장한 np array들을 npz로 저장한 시간 : ", time.time() - start_time)
 
-    return None
+    return my_test_sequences, my_test_cluster_ids
 
-""" 
-def predictAccuracy():
+
+
+
+
+def predict(model, test_sequences, test_cluster_ids, model_args, training_args, inference_args):
+    print("predict start")
+    start_time = time.time()
     predicted_cluster_ids = []
     test_record = []
 
-    # predict
-    predicted_cluster_id = model.predict(my_test_sequences, inference_args)
+    i = 0
+    """     for(test_sequence, test_cluster_id) in zip(test_sequences, test_cluster_ids):
+        print(test_sequence.shape)
+
+        
+        predicted_cluster_id = model.predict(test_sequence, inference_args)
+        predicted_cluster_ids.append(predicted_cluster_id)
+        accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_id, predicted_cluster_id)
+        test_record.append((accuracy, len(test_cluster_id)))
+        print('Ground truth labels: ')
+        print(test_cluster_id)
+        print('Predicted labels: ')
+        print(predicted_cluster_id)
+        print('-' * 100)
+        i+=1 """
+    predicted_cluster_id = model.predict(test_sequences, inference_args)
+    print(f"predict done :  {time.time() - start_time}s")
     predicted_cluster_ids.append(predicted_cluster_id)
-    accuracy = uisrnn.compute_sequence_match_accuracy(my_test_cluster_ids, predicted_cluster_id)
-    test_record.append((accuracy, len(my_test_cluster_ids)))
+    print(f"Append done :  {time.time() - start_time}s")
+    accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_ids, predicted_cluster_id)
+    print(f"Accuracy done :  {time.time() - start_time}s")
+    test_record.append((accuracy, len(test_cluster_ids)))
     print('Ground truth labels: ')
-    print(my_test_cluster_ids)
+    print(test_cluster_ids)
     print('Predicted labels: ')
     print(predicted_cluster_id)
-    print('-' * 100)
 
     output_result = uisrnn.output_result(model_args, training_args, test_record)
-    print(output_result)
+    print(output_result)  
+    print(f"All predict done :  {time.time() - start_time}s")
 
-    return None
-
- """
 
