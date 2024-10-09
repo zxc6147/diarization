@@ -18,15 +18,19 @@ import torch
 def main():
 
 
-    #d.dataPreprocessing(FILES_FOR_LEARNING_GLOBAL_PATH)
+    train_sequence, train_cluster_id = d.dataPreprocessing(FILES_FOR_LEARNING_GLOBAL_PATH)
+
+    model, model_args, training_args, inference_args = d.modelInitialization()
+
+    d.modelFitSave(model, train_sequence, train_cluster_id, training_args)
 
     #d.modelLoadAndFit(MODEL_PATH)
 
-    model, margs, targs, iargs = d.modelLoad(MODEL_PATH)
-    sqs, cids = d.dataPreprocessing(FILES_FOR_LEARNING_GLOBAL_PATH)
+    #model, margs, targs, iargs = d.modelLoad(MODEL_PATH)
+    #msqs, cids = d.dataPreprocessing(FILES_FOR_LEARNING_GLOBAL_PATH)
 
-    with torch.no_grad():
-        d.predict(model, sqs, cids, margs, targs, iargs)
+    #with torch.no_grad():
+    #    d.predict(model, msqs, cids, margs, targs, iargs)
 
     
 

@@ -18,11 +18,11 @@ import sys
 import torch, gc
 
 
-
+""" 
 # MODELSETTINGNUMBER == 0이면 model load
 # MODELSETTINGNUMBER == 1이면 my train data
 # MODELSETTINGNUMBER == 2이면 toy 처음부터 학습
-MODEL_SETTING_NUMBER = 1
+MODEL_SETTING_NUMBER = 1 """
 
 # iteration 횟수 지정
 ITERATION_NUMBER = 1000
@@ -36,11 +36,11 @@ N_MFCC_VALUE = 13
 
 FRAME_RATE = 16000
 
-#HOP_LENGTH = 160
-HOP_LENGTH = 1600
+HOP_LENGTH = 160
+#HOP_LENGTH = 1600
 
-#N_FFT = 320
-N_FFT = 3200
+N_FFT = 320
+#N_FFT = 3200
 
 
 def modelSetting(modelNum):
@@ -105,7 +105,7 @@ def modelSetting(modelNum):
 
     return train_sequence, train_cluster_id, model_args, training_args, inference_args
 
-def modelInitialization(train_sequence, train_cluster_id, model_args, training_args):
+def modelInitialization():
     """
     model의 첫 learning(fit)과 save를 수행한다.
     
@@ -116,14 +116,21 @@ def modelInitialization(train_sequence, train_cluster_id, model_args, training_a
     print("model Learning and save start")
     start_time = time.time()
 
+    model_args, training_args, inference_args = uisrnn.parse_arguments()
+
+    #이터레이션 숫자 지정
+    training_args.train_iteration = ITERATION_NUMBER
+    training_args.enforce_cluster_id_uniqueness = False
+    training_args.batch_size = BATCH_SIZE
+    model_args.observation_dim = N_MFCC_VALUE
+
     # model setting num은 나중에 지우기 -> 분기로 initialization과 load 분리
-    if (MODEL_SETTING_NUMBER == 1 or MODEL_SETTING_NUMBER == 2):
-        model = uisrnn.UISRNN(model_args)
-        model = modelFitSave(model, train_sequence, train_cluster_id, training_args)
+    model = uisrnn.UISRNN(model_args)
+    #model = modelFitSave(model, train_sequence, train_cluster_id, training_args)
 
     print(f"model initialization done :  {time.time() - start_time}s")
 
-    return model
+    return model, model_args, training_args, inference_args
 
 
 def modelFitSave(model, train_sequence, train_cluster_id, training_args):
@@ -139,7 +146,21 @@ def modelFitSave(model, train_sequence, train_cluster_id, training_args):
     gc.collect()
     torch.cuda.empty_cache()
 
-    model.fit(train_sequence, train_cluster_id, training_args) 
+
+    # 1~10 10번
+    l = len(train_sequence)
+    l = (l-1)/10
+    for i in range(1, 11):
+        t_train_sequence = train_sequence[int(l * (i-1)): int(l*i)]
+        print(type(t_train_sequence))
+        #t_train_sequence = np.array(t_train_sequence)
+        t_train_cluster_id = train_cluster_id[int(l * (i-1)): int(l*i)]
+        #t_train_cluster_id = t_train_cluster_id[int(l * (i-1)): int(l*i)]
+        model.fit(t_train_sequence, t_train_cluster_id, training_args)
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
     temp_arr = np.array(model)
     np.save('model', temp_arr)
 
@@ -150,20 +171,12 @@ def modelFitSave(model, train_sequence, train_cluster_id, training_args):
 
 
 def modelLoadAndFit(model_path):
-    model = modelLoad(model_path)
+    model, model_args, training_args, inference_args = modelLoad(model_path)
         # my train data 불러오기
     train_data = np.load('./my_train_data.npz', allow_pickle=True)
-
     train_sequence = train_data['train_sequence']
     train_cluster_id = train_data['train_cluster_id']
 
-    model_args, training_args, inference_args = uisrnn.parse_arguments()
-
-    #이터레이션 숫자 지정
-    training_args.train_iteration = ITERATION_NUMBER
-    training_args.enforce_cluster_id_uniqueness = False
-    training_args.batch_size = BATCH_SIZE
-    model_args.observation_dim = N_MFCC_VALUE
 
     train_sequence = np.array(train_sequence)
     train_sequence = np.squeeze(train_sequence)
@@ -208,7 +221,6 @@ def modelLoad(model_path):
     if model == 0:
         sys.exit("error, no model file detected")
 
-
     model_args, training_args, inference_args = uisrnn.parse_arguments()
 
     #이터레이션 숫자 지정
@@ -237,14 +249,16 @@ def dataPreprocessing(globalPath):
     print("data processnig start")
     start_time = time.time()
 
+    # wav 파일 저장 위치 global
+    file_list = glob.glob(globalPath)
+
 
     # 75개 다 불러옴
-    # print(len(file_list))
+    print(len(file_list))
     my_test_sequences = []
     my_test_cluster_ids = []
 
-    # wav 파일 저장 위치 global
-    file_list = glob.glob(globalPath)
+
 
     #파일 진행 퍼센트 확인 >> tqdm으로 가능
     percent = 0
@@ -290,6 +304,7 @@ def dataPreprocessing(globalPath):
             frame = np.expand_dims(frame, axis=1)
             my_test_sequence.append(frame)
         """
+
         my_test_sequence = mfcc
         my_test_sequence = np.array(my_test_sequence)
         my_test_sequence = np.squeeze(my_test_sequence)
@@ -309,6 +324,7 @@ def dataPreprocessing(globalPath):
                 my_test_sequences.append(my_test_sequence[_index:_index+30000])
                 _index += 30000
         """
+
         #같은 이름 다른 확장자
         json_file = os.path.splitext(file)[0]+'.json'
         #print(json_file)
@@ -434,7 +450,6 @@ def dataPreprocessing(globalPath):
 
     print("wav파일 모두 읽어서 배열에 저장한 시간 : ", time.time() - start_time)
 
-    print(len(my_test_cluster_id))
 
     my_test_sequences = my_test_sequence
     my_test_cluster_ids = my_test_cluster_id
@@ -485,7 +500,10 @@ def predict(model, test_sequences, test_cluster_ids, model_args, training_args, 
     print(f"predict done :  {time.time() - start_time}s")
     predicted_cluster_ids.append(predicted_cluster_id)
     print(f"Append done :  {time.time() - start_time}s")
-    accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_ids, predicted_cluster_id)
+    print(predicted_cluster_id)
+    print(type(predicted_cluster_id))
+    print(type(test_cluster_ids))
+    accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_ids.tolist(), predicted_cluster_id)
     print(f"Accuracy done :  {time.time() - start_time}s")
     test_record.append((accuracy, len(test_cluster_ids)))
     print('Ground truth labels: ')
