@@ -22,25 +22,27 @@ import torch, gc
 # MODELSETTINGNUMBER == 0이면 model load
 # MODELSETTINGNUMBER == 1이면 my train data
 # MODELSETTINGNUMBER == 2이면 toy 처음부터 학습
-MODEL_SETTING_NUMBER = 1 """
+MODEL_SETTING_NUMBER = 1 
+"""
 
 # iteration 횟수 지정
-ITERATION_NUMBER = 1000
+ITERATION_NUMBER = 50
 
-#BATCH_SIZE = 10
 BATCH_SIZE = 8
 
 # n_mfcc 값, observation dim 값
-#N_MFCC_VALUE = 30
 N_MFCC_VALUE = 13
 
 FRAME_RATE = 16000
 
 HOP_LENGTH = 160
-#HOP_LENGTH = 1600
+# 기본 frame rate :16000
+# hop time :0.01s
 
 N_FFT = 320
-#N_FFT = 3200
+# frame rate : 16000
+# window 크기 0.02s
+
 
 
 def modelSetting(modelNum):
@@ -133,7 +135,7 @@ def modelInitialization():
     return model, model_args, training_args, inference_args
 
 
-def modelFitSave(model, train_sequence, train_cluster_id, training_args):
+def modelFitSave(model, train_sequences, train_cluster_ids, training_args):
 
     """
     model을 인자로 받아 fit하고 save한다.
@@ -143,27 +145,37 @@ def modelFitSave(model, train_sequence, train_cluster_id, training_args):
     """
     print("model Learning and save start")
     start_time = time.time()
-    gc.collect()
-    torch.cuda.empty_cache()
+
+    _i = 1
+    for train_sequence, train_cluster_id in zip(train_sequences, train_cluster_ids):
+        print(f"{_i}번째 index")
+        _i += 1
+
+        # 1~10 10번
+        l = len(train_sequence)
+        l = (l-1)/10
+        for i in range(1, 11):
+            t_train_sequence = train_sequence[int(l * (i-1)): int(l*i)]
+            print(type(t_train_sequence))
+            #t_train_sequence = np.array(t_train_sequence)
+            t_train_cluster_id = train_cluster_id[int(l * (i-1)): int(l*i)]
+            #t_train_cluster_id = t_train_cluster_id[int(l * (i-1)): int(l*i)]
+            model.fit(t_train_sequence, t_train_cluster_id, training_args)
+
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # N번 iter할때마다 저장
+            temp_arr = np.array(model)
+            np.save('model', temp_arr)
 
 
-    # 1~10 10번
-    l = len(train_sequence)
-    l = (l-1)/10
-    for i in range(1, 11):
-        t_train_sequence = train_sequence[int(l * (i-1)): int(l*i)]
-        print(type(t_train_sequence))
-        #t_train_sequence = np.array(t_train_sequence)
-        t_train_cluster_id = train_cluster_id[int(l * (i-1)): int(l*i)]
-        #t_train_cluster_id = t_train_cluster_id[int(l * (i-1)): int(l*i)]
-        model.fit(t_train_sequence, t_train_cluster_id, training_args)
 
-        gc.collect()
-        torch.cuda.empty_cache()
 
+    """     
     temp_arr = np.array(model)
     np.save('model', temp_arr)
-
+    """
     print(f"model Learning and Save done :  {time.time() - start_time}s")
 
     return model
@@ -229,14 +241,11 @@ def modelLoad(model_path):
     training_args.batch_size = BATCH_SIZE
     model_args.observation_dim = N_MFCC_VALUE
 
-
     # load 후 학습 추가?
 
     print(f"model load done :  {time.time() - start_time}s")
 
     return model, model_args, training_args, inference_args
-
-
 
 
 
@@ -252,30 +261,40 @@ def dataPreprocessing(globalPath):
     # wav 파일 저장 위치 global
     file_list = glob.glob(globalPath)
 
-
     # 75개 다 불러옴
-    print(len(file_list))
+    print(f"file list number : {len(file_list)}")
     my_test_sequences = []
     my_test_cluster_ids = []
-
-
 
     #파일 진행 퍼센트 확인 >> tqdm으로 가능
     percent = 0
 
     #파일 불러오기
     for file in file_list:
+        print(file)
+        
+        if(percent < 3):
+            percent += 1
+            continue
+
+        """  
+        if percent < 0:
+            percent += 1
+            continue
+
+        """
+
+
         my_test_sequence = []
 
+        #print(file)
+
         #wav 파일 librosa로 불러오기
-        data_float, sample_rate = librosa.load(file, sr = None)
-        global FRAME_RATE
-        FRAME_RATE = sample_rate
+        data_float, sample_rate = librosa.load(file, sr = FRAME_RATE)
         data_float = data_float.astype('float64')
         
         # transpose 하면 64개마다 hop만큼 frame
         # sample rate 16,000
-
 
         # n_fft 320이면 20 ms. frame length임
         # hop length 160이면 10 ms
@@ -284,9 +303,9 @@ def dataPreprocessing(globalPath):
         mfcc = librosa.feature.mfcc(y=data_float, sr=sample_rate, n_fft = N_FFT, n_mfcc=N_MFCC_VALUE, hop_length=HOP_LENGTH)
         mfcc = np.transpose(mfcc)
 
-        print("1111111111")
-        print(data_float.shape)
-        print(mfcc.shape)
+
+        print(f"data shape : {data_float.shape}")
+        print(f"mfcc shape : {mfcc.shape}")
 
 
         #print("type은?")
@@ -308,6 +327,8 @@ def dataPreprocessing(globalPath):
         my_test_sequence = mfcc
         my_test_sequence = np.array(my_test_sequence)
         my_test_sequence = np.squeeze(my_test_sequence)
+
+        my_test_sequences.append(my_test_sequence)
 
         #wav 전체 시간 = 전체 프레임 / sample rate
         #t = len(my_test_sequences) * frame_size / sample_rate
@@ -442,22 +463,28 @@ def dataPreprocessing(globalPath):
                 _index += 30000
 
         """
-        percent+=1
-        print("percentage : ", percent / len(file_list) * 100)
+        # print("percentage : ", percent / len(file_list) * 100)
+        my_test_cluster_id = np.array(my_test_cluster_id)
+        my_test_cluster_id = np.squeeze(my_test_cluster_id)
 
-        if percent == 1:
-            break 
+        
+        my_test_cluster_ids.append(my_test_cluster_id)
+
+
 
     print("wav파일 모두 읽어서 배열에 저장한 시간 : ", time.time() - start_time)
 
 
-    my_test_sequences = my_test_sequence
-    my_test_cluster_ids = my_test_cluster_id
 
-    my_test_sequences = np.array(my_test_sequences)
+
+    #자르기
+    #my_test_sequences = my_test_sequences[0:int(len(my_test_sequences)/50)]
+    #my_test_cluster_ids = my_test_cluster_ids[0:int(len(my_test_cluster_ids)/50)]
+
+    my_test_sequences = np.array(my_test_sequences, dtype=object)
     my_test_sequences = np.squeeze(my_test_sequences)
 
-    my_test_cluster_ids = np.array(my_test_cluster_ids)
+    my_test_cluster_ids = np.array(my_test_cluster_ids, dtype=object)
     my_test_cluster_ids = np.squeeze(my_test_cluster_ids)
 
 
@@ -475,7 +502,7 @@ def dataPreprocessing(globalPath):
 
 
 
-def predict(model, test_sequences, test_cluster_ids, model_args, training_args, inference_args):
+def predictWithLabel(model, test_sequences, test_cluster_ids, model_args, training_args, inference_args):
     print("predict start")
     start_time = time.time()
     predicted_cluster_ids = []
@@ -506,13 +533,98 @@ def predict(model, test_sequences, test_cluster_ids, model_args, training_args, 
     accuracy = uisrnn.compute_sequence_match_accuracy(test_cluster_ids.tolist(), predicted_cluster_id)
     print(f"Accuracy done :  {time.time() - start_time}s")
     test_record.append((accuracy, len(test_cluster_ids)))
-    print('Ground truth labels: ')
-    print(test_cluster_ids)
-    print('Predicted labels: ')
-    print(predicted_cluster_id)
+    #print('Ground truth labels: ')
+    #print(test_cluster_ids)
+    #print('Predicted labels: ')
+    #print(predicted_cluster_id)
 
     output_result = uisrnn.output_result(model_args, training_args, test_record)
-    print(output_result)  
+    print(output_result)
+
     print(f"All predict done :  {time.time() - start_time}s")
+
+
+
+
+    
+
+def predict(model, test_sequences, inference_args):
+    print("predict start")
+    start_time = time.time()
+
+    predicted_cluster_id = model.predict(test_sequences, inference_args)
+    print(f"predict done :  {time.time() - start_time}s")
+
+    print(f"All predict done :  {time.time() - start_time}s")
+    return predicted_cluster_id
+
+
+
+
+
+
+
+
+def dataPreprocessingForPredict(globalPath):
+    """
+    global path를 인자로 받는다.
+    """
+    print("data processnig start")
+    start_time = time.time()
+
+    # wav 파일 저장 위치 global
+    file = globalPath
+
+    my_test_sequences = []
+
+#파일 불러오기
+    print(file)
+
+    my_test_sequence = []
+
+    #print(file)
+
+    #wav 파일 librosa로 불러오기
+    data_float, sample_rate = librosa.load(file, sr = FRAME_RATE)
+    data_float = data_float.astype('float64')
+    
+    # transpose 하면 64개마다 hop만큼 frame
+    # sample rate 16,000
+
+    # n_fft 320이면 20 ms. frame length임
+    # hop length 160이면 10 ms
+    # mfcc /100 하면 시간이 나옴
+
+    mfcc = librosa.feature.mfcc(y=data_float, sr=sample_rate, n_fft = N_FFT, n_mfcc=N_MFCC_VALUE, hop_length=HOP_LENGTH)
+    mfcc = np.transpose(mfcc)
+
+
+    print(f"data shape : {data_float.shape}")
+    print(f"mfcc shape : {mfcc.shape}")
+
+
+    my_test_sequence = mfcc
+    my_test_sequence = np.array(my_test_sequence)
+    my_test_sequence = np.squeeze(my_test_sequence)
+
+
+
+    print("wav파일 모두 읽어서 배열에 저장한 시간 : ", time.time() - start_time)
+
+
+    my_test_sequences = my_test_sequence
+
+    #자르기
+    #my_test_sequences = my_test_sequences[0:int(len(my_test_sequences)/50)]
+    #my_test_cluster_ids = my_test_cluster_ids[0:int(len(my_test_cluster_ids)/50)]
+
+    my_test_sequences = np.array(my_test_sequences)
+    my_test_sequences = np.squeeze(my_test_sequences)
+
+
+    print(my_test_sequences.shape)
+    print("저장한 np array들을 npz로 저장한 시간 : ", time.time() - start_time)
+
+    return my_test_sequences
 
 

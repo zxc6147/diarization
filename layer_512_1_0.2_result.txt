@@ -320,3 +320,16 @@ Performance:
   accuracy numbers for all testing sequences:
     0.074000
 ================================================================================
+Config:
+  sigma_alpha: 1.0
+  sigma_beta: 1.0
+  crp_alpha: 1.0
+  learning rate: 0.001
+  regularization: 1e-05
+  batch size: 8
+
+Performance:
+  averaged accuracy: 0.379659
+  accuracy numbers for all testing sequences:
+    0.379659
+================================================================================
