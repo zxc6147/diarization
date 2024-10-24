@@ -6,7 +6,6 @@
 # wav 랑 json
 # speaker id '?' 인 부분 skip 으로?
 
-
 import numpy as np
 import uisrnn
 import time
@@ -16,14 +15,7 @@ import librosa
 import os
 import sys
 import torch, gc
-
-
-""" 
-# MODELSETTINGNUMBER == 0이면 model load
-# MODELSETTINGNUMBER == 1이면 my train data
-# MODELSETTINGNUMBER == 2이면 toy 처음부터 학습
-MODEL_SETTING_NUMBER = 1 
-"""
+import tqdm
 
 # iteration 횟수 지정
 ITERATION_NUMBER = 50
@@ -42,70 +34,6 @@ HOP_LENGTH = 160
 N_FFT = 320
 # frame rate : 16000
 # window 크기 0.02s
-
-
-
-def modelSetting(modelNum):
-    """
-    # modelNum == 0이면 toy model 단순히 load
-    # modelNum == 1이면 my train data 학습
-    # modelNum == 2이면 toy 처음부터 학습
-
-    modelSetting(modelNum)
-    return 값: train sequence, cluster id, args
-    """
-    
-    print("model setting start")
-    start_time = time.time()
-
-    # my train data 불러오기
-    if(modelNum == 1):
-        train_data = np.load('./my_train_data.npz', allow_pickle=True)
-
-    # 1이 아닌 한 toy training 불러오가
-    elif(modelNum == 0 or modelNum == 2):
-        train_data = np.load('./toy_training_data.npz', allow_pickle=True)
-
-
-    test_data = np.load('./toy_testing_data.npz', allow_pickle=True)
-    train_sequence = train_data['train_sequence']
-    train_cluster_id = train_data['train_cluster_id']
-    
-    """ 
-    test_sequences = test_data['test_sequences'].tolist()
-    test_cluster_ids = test_data['test_cluster_ids'].tolist()
-    """
-
-    # list로 전달?
-    # args[] = uisrnn.parse_arguments()
-    model_args, training_args, inference_args = uisrnn.parse_arguments()
-
-    #이터레이션 숫자 지정
-    training_args.train_iteration = ITERATION_NUMBER
-    training_args.enforce_cluster_id_uniqueness = False
-    training_args.batch_size = BATCH_SIZE
-    model_args.observation_dim = N_MFCC_VALUE
-
-    print(model_args)
-    print(training_args)
-    print(inference_args)
-
-    train_sequence = np.array(train_sequence)
-    train_sequence = np.squeeze(train_sequence)
-
-    train_cluster_id = np.array(train_cluster_id)
-    train_cluster_id = np.squeeze(train_cluster_id)
-
-    
-    print(train_sequence.shape)
-    print(train_cluster_id.shape)
-
-    #print(train_sequence)
-    #print(train_cluster_id)
-    
-    print(f"model setting done :  {time.time() - start_time}s")
-
-    return train_sequence, train_cluster_id, model_args, training_args, inference_args
 
 def modelInitialization():
     """
@@ -136,7 +64,6 @@ def modelInitialization():
 
 
 def modelFitSave(model, train_sequences, train_cluster_ids, training_args):
-
     """
     model을 인자로 받아 fit하고 save한다.
 
@@ -146,17 +73,14 @@ def modelFitSave(model, train_sequences, train_cluster_ids, training_args):
     print("model Learning and save start")
     start_time = time.time()
 
-    _i = 1
-    for train_sequence, train_cluster_id in zip(train_sequences, train_cluster_ids):
-        print(f"{_i}번째 index")
-        _i += 1
+    for train_sequence, train_cluster_id in zip(tqdm(train_sequences), train_cluster_ids):
 
         # 1~10 10번
         l = len(train_sequence)
         l = (l-1)/10
         for i in range(1, 11):
             t_train_sequence = train_sequence[int(l * (i-1)): int(l*i)]
-            print(type(t_train_sequence))
+            #print(type(t_train_sequence))
             #t_train_sequence = np.array(t_train_sequence)
             t_train_cluster_id = train_cluster_id[int(l * (i-1)): int(l*i)]
             #t_train_cluster_id = t_train_cluster_id[int(l * (i-1)): int(l*i)]
@@ -164,13 +88,9 @@ def modelFitSave(model, train_sequences, train_cluster_ids, training_args):
 
             gc.collect()
             torch.cuda.empty_cache()
-
             # N번 iter할때마다 저장
             temp_arr = np.array(model)
             np.save('model', temp_arr)
-
-
-
 
     """     
     temp_arr = np.array(model)
@@ -273,16 +193,16 @@ def dataPreprocessing(globalPath):
     for file in file_list:
         print(file)
         
-        if(percent < 3):
-            percent += 1
-            continue
+        # if(percent < 3):
+        #     percent += 1
+        #     continue
 
-        """  
-        if percent < 0:
-            percent += 1
-            continue
+        
+        # if percent < 0:
+        #     percent += 1
+        #     continue
 
-        """
+        
 
 
         my_test_sequence = []
@@ -325,10 +245,12 @@ def dataPreprocessing(globalPath):
         """
 
         my_test_sequence = mfcc
+        
         my_test_sequence = np.array(my_test_sequence)
         my_test_sequence = np.squeeze(my_test_sequence)
 
-        my_test_sequences.append(my_test_sequence)
+        #my_test_sequences.append(my_test_sequence)
+
 
         #wav 전체 시간 = 전체 프레임 / sample rate
         #t = len(my_test_sequences) * frame_size / sample_rate
@@ -468,7 +390,7 @@ def dataPreprocessing(globalPath):
         my_test_cluster_id = np.squeeze(my_test_cluster_id)
 
         
-        my_test_cluster_ids.append(my_test_cluster_id)
+        # my_test_cluster_ids.append(my_test_cluster_id)
 
 
 
@@ -476,15 +398,10 @@ def dataPreprocessing(globalPath):
 
 
 
-
-    #자르기
-    #my_test_sequences = my_test_sequences[0:int(len(my_test_sequences)/50)]
-    #my_test_cluster_ids = my_test_cluster_ids[0:int(len(my_test_cluster_ids)/50)]
-
-    my_test_sequences = np.array(my_test_sequences, dtype=object)
+    my_test_sequences = np.array(my_test_sequences)
     my_test_sequences = np.squeeze(my_test_sequences)
 
-    my_test_cluster_ids = np.array(my_test_cluster_ids, dtype=object)
+    my_test_cluster_ids = np.array(my_test_cluster_ids)
     my_test_cluster_ids = np.squeeze(my_test_cluster_ids)
 
 
@@ -497,7 +414,6 @@ def dataPreprocessing(globalPath):
     print("저장한 np array들을 npz로 저장한 시간 : ", time.time() - start_time)
 
     return my_test_sequences, my_test_cluster_ids
-
 
 
 
@@ -523,6 +439,7 @@ def predictWithLabel(model, test_sequences, test_cluster_ids, model_args, traini
         print(predicted_cluster_id)
         print('-' * 100)
         i+=1 """
+    
     predicted_cluster_id = model.predict(test_sequences, inference_args)
     print(f"predict done :  {time.time() - start_time}s")
     predicted_cluster_ids.append(predicted_cluster_id)
@@ -542,11 +459,9 @@ def predictWithLabel(model, test_sequences, test_cluster_ids, model_args, traini
     print(output_result)
 
     print(f"All predict done :  {time.time() - start_time}s")
+    return predicted_cluster_id
 
 
-
-
-    
 
 def predict(model, test_sequences, inference_args):
     print("predict start")
@@ -559,12 +474,7 @@ def predict(model, test_sequences, inference_args):
     return predicted_cluster_id
 
 
-
-
-
-
-
-
+#from sklearn.preprocessing import MinMaxScaler
 def dataPreprocessingForPredict(globalPath):
     """
     global path를 인자로 받는다.
@@ -577,8 +487,8 @@ def dataPreprocessingForPredict(globalPath):
 
     my_test_sequences = []
 
-#파일 불러오기
-    print(file)
+    # 파일 불러오기
+    # print(file)
 
     my_test_sequence = []
 
@@ -604,6 +514,11 @@ def dataPreprocessingForPredict(globalPath):
 
 
     my_test_sequence = mfcc
+
+
+    # scaler = MinMaxScaler(feature_range=(-1,1))
+    # scaler.fit(my_test_sequence)
+
     my_test_sequence = np.array(my_test_sequence)
     my_test_sequence = np.squeeze(my_test_sequence)
 
@@ -614,10 +529,6 @@ def dataPreprocessingForPredict(globalPath):
 
     my_test_sequences = my_test_sequence
 
-    #자르기
-    #my_test_sequences = my_test_sequences[0:int(len(my_test_sequences)/50)]
-    #my_test_cluster_ids = my_test_cluster_ids[0:int(len(my_test_cluster_ids)/50)]
-
     my_test_sequences = np.array(my_test_sequences)
     my_test_sequences = np.squeeze(my_test_sequences)
 
@@ -626,5 +537,3 @@ def dataPreprocessingForPredict(globalPath):
     print("저장한 np array들을 npz로 저장한 시간 : ", time.time() - start_time)
 
     return my_test_sequences
-
-
